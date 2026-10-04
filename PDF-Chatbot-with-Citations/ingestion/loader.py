@@ -9,6 +9,8 @@ from chunk_processing import ChunkerProcessor
 
 HEADING_CATEGORY = {'Title', "Header"}
 BODY_CATEGORY = {'UncategorizedText', 'ListItem', 'Image', 'FigureCaption', 'NarrativeText', 'Formula', 'Table'}
+SPLIT_CATEGORIES = {"NarrativeText", "UncategorizedText", "ListItem", "FigureCaption", "Formula"}
+
 
 _HEADING_NUM_RE = re.compile(r"^([A-Z]|\d+(?:\.\d+)*)\.?\s+(.*)$") # "1", "1.", "1.2", "1.2.", "1.2.3", "1.2.3.", "A", "A.", "A.1", "A.1."
 _RUNIN_RE = re.compile(r"^([A-Z][\w\s,–—\-]+?\.)\s+(.+)$")
@@ -60,11 +62,11 @@ class Loader:
         return out
 
     @staticmethod
-    def classify_heading(text: str) -> tuple[str, str | None]:
+    def classify_heading(text: str) -> tuple[str, str]:
 
         m = _HEADING_NUM_RE.match(text)
         if not m:
-            return "main", None
+            return "main", 'None'
         num, _title = m.group(1), m.group(2)
         depth = num.count(".") + 1
         return ("main" if depth == 1 else "sub"), num
@@ -95,8 +97,8 @@ class Loader:
 
         current_heading = "Uncategorized"
         current_subheading = "Uncategorized"
-        current_heading_num = None
-        current_subheading_num = None
+        current_heading_num = 'None'
+        current_subheading_num = 'None'
 
         for doc in docs:
 
@@ -111,7 +113,7 @@ class Loader:
                     current_heading_num = num
 
                     current_subheading = "Uncategorized"
-                    current_subheading_num = None
+                    current_subheading_num = 'None'
 
                 else:
                     current_subheading = text
@@ -141,7 +143,9 @@ class Loader:
             chunk_overlap=0
         )
 
-        chunks = splitter.split_documents(docs)
+        to_split = [d for d in docs if d.metadata.get("category") in SPLIT_CATEGORIES]
+        atomic   = [d for d in docs if d.metadata.get("category") not in SPLIT_CATEGORIES]
+        chunks   = splitter.split_documents(to_split) + atomic
 
         for i, doc in enumerate(chunks, 1):
             doc.metadata["chunk_no"] = i
@@ -160,5 +164,4 @@ class Loader:
         chunks = Loader.split_documents(docs)
         chunks = ChunkerProcessor.summarize_chunk(chunks)
 
-if __name__ == "__main__":
-    Loader.loading_pipeline()
+        return chunks

@@ -2,8 +2,7 @@ import os
 from typing import List
 from langchain_core.documents import Document
 
-from google import genai
-from google.genai import types
+from ollama import chat, generate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,8 +36,6 @@ class ChunkerProcessor:
     def ai_summary(text: str, tables: List[str], images: List[str]) -> str:
 
         try:
-            client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-
             prompt_text = f"""You are creating a searchable description for document content retrieval.
 
             CONTENT TO ANALYZE:
@@ -50,40 +47,51 @@ class ChunkerProcessor:
             if tables:
                 prompt_text += "TABLES:\n"
                 for i, table in enumerate(tables, 1):
-                    prompt_text += f"Table {i+1}:\n{table}\n\n"
+                    prompt_text += f"Table {i}:\n{table}\n\n"
         
-                    prompt_text += """
-                    YOUR TASK:
-                    Generate a comprehensive, searchable description that covers:
+            prompt_text += """
+            YOUR TASK:
+            Generate a comprehensive, searchable description that covers:
 
-                    1. Key facts, numbers, and data points from text and tables
-                    2. Main topics and concepts discussed  
-                    3. Questions this content could answer
-                    4. Visual content analysis (charts, diagrams, patterns in images)
-                    5. Alternative search terms users might use
+            1. Key facts, numbers, and data points from text and tables
+            2. Main topics and concepts discussed  
+            3. Questions this content could answer
+            4. Visual content analysis (charts, diagrams, patterns in images)
+            5. Alternative search terms users might use
 
-                    Make it detailed and searchable - prioritize findability over brevity.
+            Make it detailed and searchable - prioritize findability over brevity.
 
-                    SEARCHABLE DESCRIPTION:"""
+            SEARCHABLE DESCRIPTION:"""
 
-            text_part = types.Part.from_text(text=prompt_text)
-
-            message_content = [text_part]
-            
             if images:
-                image_part = types.Part.from_bytes(
-                    data=images[0],
-                    mime_type="image/jpeg"
-                )
-                message_content.append(image_part)
-            
+                prompt_text += "An image is attached. Describe what it shows (chart, diagram, architecture, axes, labels, trends).\n\n"
 
-            llm = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=message_content,
+
+            opts = {"num_ctx": 8192}
+            if images:
+                response = chat(
+                    model="qwen3-vl:2b",
+                    messages=[{
+                        'role': 'user',
+                        'content': prompt_text,
+                        'images': images,
+                    }],
+                    think=False,
+                    options=opts
+                )
+                summary = (response.message.content or "").strip()
+                if not summary:
+                    raise ValueError("empty summary from model")
+                return summary
+            
+            response = generate(
+                model="qwen3-vl:2b",
+                prompt=prompt_text,
+                think=False,
+                options=opts
             )
 
-            return llm.text
+            return response['response'].strip()
 
         except Exception as e:
             print(f"AI summary failed: {e}")
@@ -92,14 +100,14 @@ class ChunkerProcessor:
             if tables:
                 summary += f"Contains {len(tables)} tables"
             if images:
-                summary += f"Contains {len(images)} tables"
+                summary += f"Contains {len(images)} images"
             return summary
 
     @staticmethod
     def summarize_chunk(chunks: list[Document]) -> list[Document]:
 
         total_chunk = len(chunks)
-        for i, chunk in enumerate(chunks[100:200], 100):
+        for i, chunk in enumerate(chunks, 1):
             print(f"Processing Chunk: {i}/{total_chunk}")
 
             content_data = ChunkerProcessor.separate_content(chunk)
